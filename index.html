@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Social</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; height: 100vh; margin: 0; }
+        .container { width: 400px; background: white; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-radius: 8px; display: flex; flex-direction: column; }
+        input, button { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; cursor: pointer; border: none; }
+        button:hover { background: #0056b3; }
+        .hidden { display: none; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+        .friend-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .friend-item:hover { background: #f9f9f9; }
+        #chat-box { flex-grow: 1; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; background: #fff; height: 300px; }
+        .msg { margin: 5px 0; padding: 5px 10px; border-radius: 10px; max-width: 70%; word-wrap: break-word;}
+        .msg-me { background: #007bff; color: white; align-self: flex-end; margin-left: auto; }
+        .msg-other { background: #e4e6eb; color: black; align-self: flex-start; }
+        
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .online { background-color: #31a24c; border: 1px solid #fff; }
+        .offline { background-color: #ccc; border: 1px solid #fff; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="container">
+        <h2 align="center">Social Login</h2>
+        <input type="text" id="l-user" placeholder="Username">
+        <input type="password" id="l-pass" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <button onclick="register()" style="background:#42b72a">Create New Account</button>
+        <p id="l-msg" style="color:red; text-align:center;"></p>
+    </div>
+
+    <div id="dash-screen" class="container hidden">
+        <div class="header">
+            <h3 id="welcome-msg">Welcome</h3>
+            <button onclick="logout()" style="width:auto; padding:5px 10px; background:red;">Logout</button>
+        </div>
+        
+        <div>
+            <input type="text" id="friend-name" placeholder="Friend's Username" style="width:70%; display:inline-block;">
+            <button onclick="addFriend()" style="width:25%; display:inline-block;">Add</button>
+        </div>
+        <hr>
+        <h4>My Friends:</h4>
+        <div id="friend-list">
+            </div>
+    </div>
+
+    <div id="chat-screen" class="container hidden">
+        <div class="header">
+            <button onclick="showDash()" style="width:auto; padding:5px;">&larr; Back</button>
+            <h3 id="chat-with-user">Chat</h3>
+        </div>
+        <div id="chat-box" style="display:flex; flex-direction:column;"></div>
+        <div style="display:flex;">
+            <input type="text" id="msg-input" placeholder="Type a message...">
+            <button onclick="sendMsg()" style="width:20%;">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentChatFriend = null;
+        let dataInterval = null;
+
+        // --- NEW: Check if user is already logged in when page loads ---
+        window.onload = function() {
+            const savedUser = localStorage.getItem("socialUser");
+            if (savedUser) {
+                currentUser = savedUser;
+                document.getElementById('welcome-msg').innerText = "Hi, " + currentUser;
+                showDash();
+            }
+        };
+
+        async function api(url, data) {
+            const res = await fetch(url, { method: 'POST', body: data });
+            return res;
+        }
+
+        async function login() {
+            const u = document.getElementById('l-user').value;
+            const p = document.getElementById('l-pass').value;
+            const res = await api('/api/login', u + ":" + p);
+            if (res.status === 200) {
+                currentUser = u;
+                // --- NEW: Save user to browser memory ---
+                localStorage.setItem("socialUser", u);
+                
+                document.getElementById('welcome-msg').innerText = "Hi, " + u;
+                showDash();
+            } else {
+                document.getElementById('l-msg').innerText = "Invalid Login";
+            }
+        }
+
+        async function register() {
+            const u = document.getElementById('l-user').value;
+            const p = document.getElementById('l-pass').value;
+            const res = await api('/api/register', u + ":" + p);
+            if (res.status === 200) alert("Registered! Click Login.");
+            else alert("User already exists!");
+        }
+
+        async function addFriend() {
+            const f = document.getElementById('friend-name').value;
+            const res = await api('/api/addfriend', currentUser + ":" + f);
+            const txt = await res.text();
+            alert(txt);
+            loadFriends();
+        }
+
+        async function loadFriends() {
+            const res = await api('/api/getfriends', currentUser + ":x");
+            const text = await res.text();
+            const list = document.getElementById('friend-list');
+            list.innerHTML = "";
+            
+            if(text.length > 0) {
+                text.split(",").forEach(item => {
+                    if(item.trim() === "") return;
+                    
+                    const parts = item.split(":");
+                    const fName = parts[0];
+                    const fStatus = parts[1]; 
+                    
+                    const dotClass = (fStatus === "1") ? "online" : "offline";
+                    const statusText = (fStatus === "1") ? "Online" : "Offline";
+
+                    list.innerHTML += `
+                    <div class='friend-item' onclick='openChat("${fName}")'>
+                        <div style="display:flex; align-items:center;">
+                            <span class="status-dot ${dotClass}"></span>
+                            <span>${fName}</span>
+                        </div>
+                        <span style="font-size:12px; color:#888;">${statusText} &rsaquo;</span>
+                    </div>`;
+                });
+            }
+        }
+
+        function openChat(friend) {
+            currentChatFriend = friend;
+            document.getElementById('chat-with-user').innerText = "Chat with " + friend;
+            document.getElementById('dash-screen').classList.add('hidden');
+            document.getElementById('chat-screen').classList.remove('hidden');
+            
+            if(dataInterval) clearInterval(dataInterval);
+            loadChat(); 
+            dataInterval = setInterval(loadChat, 2000); 
+        }
+
+        async function sendMsg() {
+            const input = document.getElementById('msg-input');
+            const msg = input.value;
+            if(!msg) return;
+            await api('/api/send', currentUser + ":" + currentChatFriend + ":" + msg);
+            input.value = "";
+            loadChat();
+        }
+
+        async function loadChat() {
+            if(!currentChatFriend) return;
+            const res = await api('/api/getchat', currentUser + ":" + currentChatFriend);
+            const text = await res.text();
+            const box = document.getElementById('chat-box');
+            
+            let html = "";
+            if(text.length > 0) {
+                text.split("|").forEach(line => {
+                    if(!line) return;
+                    const parts = line.split(":", 2);
+                    const sender = parts[0];
+                    const msg = line.substring(sender.length + 1); 
+                    
+                    const cls = (sender === currentUser) ? "msg-me" : "msg-other";
+                    html += `<div class='msg ${cls}'>${msg}</div>`;
+                });
+            }
+            box.innerHTML = html;
+        }
+
+        function showDash() {
+            if(dataInterval) clearInterval(dataInterval);
+            
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('chat-screen').classList.add('hidden');
+            document.getElementById('dash-screen').classList.remove('hidden');
+            
+            loadFriends(); 
+            dataInterval = setInterval(loadFriends, 3000); 
+        }
+        
+        function logout() {
+            // --- NEW: Clear browser memory on logout ---
+            localStorage.removeItem("socialUser");
+            location.reload();
+        }
+    </script>
+</body>
+</html>
